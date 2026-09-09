@@ -1,0 +1,181 @@
+{
+  "name": "boulevard",
+  "version": "0.1.0",
+  "user_agent": "core-forge/0.1 (+https://neilmahure.com)",
+  "instructions": "Boulevard Client API, the surface a business exposes on behalf of its own clients. Booking is a cart flow, not a single call: create_cart, add_service, then bookable_dates and bookable_times to find a slot, reserve_time to hold it, and checkout to turn the hold into an appointment. Every step that changes state is held behind a confirmation gate and sends nothing until the token from its preview is returned. Ask the client to confirm the previewed time, price and service before you send it.\n\nEvery operation, argument and type here was taken from Boulevard's own MIT-licensed book-sdk (github.com/Boulevard/book-sdk, src/graph.d.ts), not from guesswork. It has NOT been run against a live or sandbox tenant, because sandbox credentials are issued through the Boulevard Developer Portal to Enterprise accounts. Treat it as a reviewed design against a published schema until those credentials exist.",
+  "transport": {
+    "kind": "graphql",
+    "url": "${BLVD_API_URL}",
+    "auth": {"kind": "basic", "env": "BLVD_API_KEY", "password": ""},
+    "headers": {"Content-Type": "application/json"}
+  },
+  "tools": [
+    {
+      "name": "get_business",
+      "description": "The business's name, timezone, website and locations. Call this first to establish which business and timezone every later date belongs to.",
+      "params": [],
+      "query": "query { business { id name tz website locations(first: 25) { edges { node { id name businessName phoneNumber tz isRemote address { line1 city state zip } } } } } }",
+      "variables": []
+    },
+    {
+      "name": "list_locations",
+      "description": "Paginated list of the business's locations. Use when the business has more locations than get_business returned.",
+      "params": [
+        {"name": "first", "type": "integer", "default": 25,
+         "description": "How many to return"},
+        {"name": "after", "type": "string",
+         "description": "Cursor from a previous page"}
+      ],
+      "query": "query($first: Int, $after: String) { locations(first: $first, after: $after) { edges { cursor node { id name businessName phoneNumber tz address { line1 city state zip } } } pageInfo { hasNextPage endCursor } } }",
+      "variables": ["first", "after"]
+    },
+    {
+      "name": "get_cart",
+      "description": "Read a cart, including the services available to book on it and what is currently selected. This is how you discover a location's bookable services and their ids.",
+      "params": [
+        {"name": "cart_id", "type": "string", "required": true,
+         "description": "Cart id returned by create_cart"}
+      ],
+      "query": "query($cart_id: ID!) { cart(id: $cart_id) { id location { id name tz } availableCategories { id name availableItems { id name description ... on CartAvailableBookableItem { listPrice listDuration } } } selectedItems { id ... on CartBookableItem { item { id name } selectedStaffVariant { id staff { id firstName lastName } duration price } } } summary { total subtotal taxAmount gratuityAmount } } }",
+      "variables": ["cart_id"]
+    },
+    {
+      "name": "bookable_dates",
+      "description": "Which dates have any availability for what is currently in the cart. Call this before bookable_times: it narrows a month to a handful of days in one request instead of thirty.",
+      "params": [
+        {"name": "cart_id", "type": "string", "required": true},
+        {"name": "searchRangeLower", "type": "string",
+         "description": "Earliest date to consider, YYYY-MM-DD"},
+        {"name": "searchRangeUpper", "type": "string",
+         "description": "Latest date to consider, YYYY-MM-DD"},
+        {"name": "tz", "type": "string",
+         "description": "IANA timezone, e.g. America/Los_Angeles. Defaults to the location's."},
+        {"name": "limit", "type": "integer", "default": 30}
+      ],
+      "query": "query($cart_id: ID!, $searchRangeLower: Date, $searchRangeUpper: Date, $tz: Tz, $limit: Int) { cartBookableDates(id: $cart_id, searchRangeLower: $searchRangeLower, searchRangeUpper: $searchRangeUpper, tz: $tz, limit: $limit) { date } }",
+      "variables": ["cart_id", "searchRangeLower", "searchRangeUpper", "tz", "limit"]
+    },
+    {
+      "name": "bookable_times",
+      "description": "The bookable start times on one date. Each returned id is the bookableTimeId that reserve_time and reschedule_appointment take.",
+      "params": [
+        {"name": "cart_id", "type": "string", "required": true},
+        {"name": "searchDate", "type": "string", "required": true,
+         "description": "The date to search, YYYY-MM-DD"},
+        {"name": "tz", "type": "string", "description": "IANA timezone"}
+      ],
+      "query": "query($cart_id: ID!, $searchDate: Date!, $tz: Tz) { cartBookableTimes(id: $cart_id, searchDate: $searchDate, tz: $tz) { id startTime score } }",
+      "variables": ["cart_id", "searchDate", "tz"]
+    },
+    {
+      "name": "bookable_staff",
+      "description": "Which staff can perform a selected service at a given time, with their price and duration. Use when the client asks for a specific provider.",
+      "params": [
+        {"name": "cart_id", "type": "string", "required": true},
+        {"name": "bookableTimeId", "type": "string", "required": true},
+        {"name": "itemId", "type": "string", "required": true,
+         "description": "Id of the selected cart item, not the service id"}
+      ],
+      "query": "query($cart_id: ID!, $bookableTimeId: ID!, $itemId: ID!) { cartBookableStaffVariants(id: $cart_id, bookableTimeId: $bookableTimeId, itemId: $itemId) { id duration price staff { id firstName lastName } } }",
+      "variables": ["cart_id", "bookableTimeId", "itemId"]
+    },
+    {
+      "name": "my_appointments",
+      "description": "The authenticated client's appointments. Requires a client token in BLVD_CLIENT_TOKEN; without one this returns nothing rather than another client's data.",
+      "params": [
+        {"name": "first", "type": "integer", "default": 20},
+        {"name": "after", "type": "string"}
+      ],
+      "query": "query($first: Int, $after: String) { myAppointments(first: $first, after: $after) { edges { node { id startAt endAt duration cancelled state appointmentServices { id service { name } staff { firstName lastName } } location { id name } } } pageInfo { hasNextPage endCursor } } }",
+      "variables": ["first", "after"]
+    },
+    {
+      "name": "get_appointment",
+      "description": "One appointment in full, including its services, staff, state and cancellation if there is one.",
+      "params": [
+        {"name": "appointment_id", "type": "string", "required": true},
+        {"name": "cartId", "type": "string",
+         "description": "Cart the appointment was booked from, if reading it before the client is authenticated"}
+      ],
+      "query": "query($appointment_id: ID!, $cartId: ID) { appointment(id: $appointment_id, cartId: $cartId) { id startAt endAt duration cancelled state clientId appointmentServices { id service { name } staff { firstName lastName } } location { id name tz } cancellation { reason } } }",
+      "variables": ["appointment_id", "cartId"]
+    },
+
+    {
+      "name": "create_cart",
+      "description": "Start a booking at a location. Returns the cart id every later step needs. Creates no appointment and charges nothing on its own.",
+      "write": true,
+      "params": [
+        {"name": "locationId", "type": "string",
+         "description": "Location to book at. Omit for a single-location business."},
+        {"name": "clientMessage", "type": "string",
+         "description": "Note from the client to the business"},
+        {"name": "referralSource", "type": "string"}
+      ],
+      "query": "mutation($locationId: ID, $clientMessage: String, $referralSource: String) { createCart(input: {locationId: $locationId, clientMessage: $clientMessage, referralSource: $referralSource}) { cart { id location { id name tz } } } }",
+      "variables": ["locationId", "clientMessage", "referralSource"]
+    },
+    {
+      "name": "add_service",
+      "description": "Add a bookable service to the cart. itemId is the availableItems id from get_cart, not the name of the service.",
+      "write": true,
+      "params": [
+        {"name": "cart_id", "type": "string", "required": true},
+        {"name": "itemId", "type": "string", "required": true,
+         "description": "Service id from get_cart availableCategories.availableItems"},
+        {"name": "itemStaffVariantId", "type": "string",
+         "description": "Specific provider. Omit to let Boulevard choose."},
+        {"name": "itemOptionIds", "type": "array",
+         "description": "Service add-on ids"}
+      ],
+      "query": "mutation($cart_id: ID!, $itemId: ID!, $itemStaffVariantId: ID, $itemOptionIds: [ID!]) { addCartSelectedBookableItem(input: {id: $cart_id, itemId: $itemId, itemStaffVariantId: $itemStaffVariantId, itemOptionIds: $itemOptionIds}) { cart { id selectedItems { id } summary { total } } } }",
+      "variables": ["cart_id", "itemId", "itemStaffVariantId", "itemOptionIds"]
+    },
+    {
+      "name": "reserve_time",
+      "description": "Hold a slot from bookable_times. The hold is temporary and expires; it is not a booking until checkout succeeds.",
+      "write": true,
+      "params": [
+        {"name": "cart_id", "type": "string", "required": true},
+        {"name": "bookableTimeId", "type": "string", "required": true,
+         "description": "id from bookable_times"}
+      ],
+      "query": "mutation($cart_id: ID!, $bookableTimeId: ID!) { reserveCartBookableItems(input: {id: $cart_id, bookableTimeId: $bookableTimeId}) { cart { id startTime } } }",
+      "variables": ["cart_id", "bookableTimeId"]
+    },
+    {
+      "name": "checkout",
+      "description": "Turn the held cart into a real appointment. This is the step that books the client and can take payment. Show the client the previewed total and time and get an explicit yes before returning the confirmation token.",
+      "write": true,
+      "params": [
+        {"name": "cart_id", "type": "string", "required": true}
+      ],
+      "query": "mutation($cart_id: ID!) { checkoutCart(input: {id: $cart_id}) { appointments { id startAt endAt } cart { id summary { total } } } }",
+      "variables": ["cart_id"]
+    },
+    {
+      "name": "cancel_appointment",
+      "description": "Cancel a booked appointment. This frees the slot, may trigger the business's cancellation policy and fee, and cannot be undone from here.",
+      "write": true,
+      "params": [
+        {"name": "appointment_id", "type": "string", "required": true},
+        {"name": "notes", "type": "string", "description": "Reason, shown to the business"}
+      ],
+      "query": "mutation($appointment_id: ID!, $notes: String) { cancelAppointment(input: {id: $appointment_id, notes: $notes}) { appointment { id cancelled } } }",
+      "variables": ["appointment_id", "notes"]
+    },
+    {
+      "name": "reschedule_appointment",
+      "description": "Move an existing appointment to a different bookable time.",
+      "write": true,
+      "params": [
+        {"name": "appointmentId", "type": "string", "required": true},
+        {"name": "bookableTimeId", "type": "string", "required": true},
+        {"name": "sendNotification", "type": "boolean", "default": true,
+         "description": "Whether the client is notified of the change"}
+      ],
+      "query": "mutation($appointmentId: ID!, $bookableTimeId: ID!, $sendNotification: Boolean!) { appointmentReschedule(input: {appointmentId: $appointmentId, bookableTimeId: $bookableTimeId, sendNotification: $sendNotification}) { appointment { id startAt endAt } } }",
+      "variables": ["appointmentId", "bookableTimeId", "sendNotification"]
+    }
+  ]
+}

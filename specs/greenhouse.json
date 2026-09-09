@@ -1,0 +1,50 @@
+{
+  "name": "greenhouse-jobs",
+  "version": "0.1.0",
+  "user_agent": "core-forge/0.1 (+https://neilmahure.com)",
+  "instructions": "Read any company's published job postings from their Greenhouse board. The board token is normally the company name lowercased with spaces removed, for example 'boulevard'. Everything here is public data with no credentials, so it is the spec to run first when checking that FORGE works.",
+  "transport": {
+    "kind": "rest",
+    "url": "https://boards-api.greenhouse.io/v1",
+    "auth": {"kind": "none"},
+    "headers": {"Accept": "application/json"}
+  },
+  "tools": [
+    {
+      "name": "list_jobs",
+      "description": "List the open roles on a company's Greenhouse board. Pass content=true to include the full job description, which is large but is where hiring signals live.",
+      "params": [
+        {"name": "board", "type": "string", "required": true,
+         "description": "Board token, e.g. 'boulevard'"},
+        {"name": "content", "type": "boolean", "default": false,
+         "description": "Include full descriptions"}
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/boards/{board}/jobs",
+        "query": {"content": "content"}
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Fetch one job posting in full, including the description and location.",
+      "params": [
+        {"name": "board", "type": "string", "required": true},
+        {"name": "job_id", "type": "string", "required": true}
+      ],
+      "request": {"method": "GET", "path": "/boards/{board}/jobs/{job_id}"}
+    },
+    {
+      "name": "list_departments",
+      "description": "List the departments a company is hiring into, which reads as an org chart of where they are investing.",
+      "params": [{"name": "board", "type": "string", "required": true}],
+      "request": {"method": "GET", "path": "/boards/{board}/departments"}
+    },
+    {
+      "name": "list_offices",
+      "description": "List the offices and locations attached to a company's board.",
+      "params": [{"name": "board", "type": "string", "required": true}],
+      "request": {"method": "GET", "path": "/boards/{board}/offices"}
+    }
+  ]
+}

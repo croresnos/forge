@@ -1,0 +1,5 @@
+mcp>=2.0
+httpx
+graphql-core
+pydantic
+pytest
