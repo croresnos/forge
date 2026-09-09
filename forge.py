@@ -1,23 +1,21 @@
-"""FORGE - turn a vendor's HTTP API into an MCP server from one JSON spec.
+"""FORGE - turn an HTTP API into an MCP server from one JSON spec.
 
-Almost every vertical SaaS vendor has the same shape: a documented REST or
-GraphQL API, a bearer token, and a dozen operations worth exposing to an agent.
-Writing a bespoke Python server per vendor means rewriting auth, schema
-generation and error handling every time. A spec file means the second vendor
-takes an hour instead of a week.
+A spec says where an API lives, how it authenticates, and which of its
+operations to expose. FORGE serves those as MCP tools. Adding an API means
+writing another JSON file rather than another Python server. REST and GraphQL.
 
-    python core/mcp/forge.py core/mcp/specs/greenhouse.json          # serve
-    python core/mcp/forge.py core/mcp/specs/greenhouse.json --list   # inspect
+    python forge.py specs/greenhouse.json --check   # validate the spec
+    python forge.py specs/greenhouse.json --list    # show the tools
+    python forge.py specs/greenhouse.json           # serve over stdio
 
-What makes this worth buying rather than generating: every tool marked
-"write": true is held behind a confirmation gate. The first call does not touch
-the vendor. It returns the exact request that would be sent plus a token that is
-a hash of that request, and nothing happens until the caller sends the token
-back. An agent cannot rebook a client's appointment by hallucinating an ID,
-because the confirmation is bound to the bytes, not to the intent.
+Tools marked "write": true are held. The first call renders the request and
+returns it together with a hash of it, and sends nothing. The API is not
+touched until the caller passes that hash back. The token is bound to the
+rendered request rather than to the arguments or the caller's intent, so an
+approval cannot be replayed against a different record and editing any field
+invalidates it.
 
-That is the whole product. A booking platform's objection to agent access is
-never "can you call our API", it is "what happens when the model is wrong".
+See README.md for the spec format.
 """
 
 from __future__ import annotations
